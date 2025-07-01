@@ -1,0 +1,28 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!-- Build configuration -->
+    <Optimize>true</Optimize>               <!-- Optimize for Release -->
+    <DebugType>None</DebugType>             <!-- No PDB generation -->
+    <DebugSymbols>false</DebugSymbols>      <!-- Don't generate debug symbols -->
+    <Deterministic>true</Deterministic>
+    <Copyright>MIT License (R)</Copyright>
+    <PackageReleaseNotes>1.1.1</PackageReleaseNotes>
+    <AssemblyVersion>1.1.1.1</AssemblyVersion>
+    <FileVersion>1.1.1.1</FileVersion>
+    <Description>Autopot, Autobuff, SkillSpammer y ChainMacros.</Description>
+    <PackageTags>autopot,ap,cheats</PackageTags>
+    <ApplicationIcon>hacker.ico</ApplicationIcon>     <!-- Deterministic builds -->
+
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="hacker.ico" />
+  </ItemGroup>
+
+</Project>

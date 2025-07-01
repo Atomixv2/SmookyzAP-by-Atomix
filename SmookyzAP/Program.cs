@@ -1,12 +1,11 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 
-namespace Smookyz
+namespace SmookyzAP_by_Atomix
 {
     class Program
     {
@@ -25,17 +24,23 @@ namespace Smookyz
         [DllImport("user32.dll")]
         public static extern bool PostMessage(IntPtr hWnd, uint Msg, int wParam, int lParam);
 
-        [DllImport("kernel32.dll")]
-        static extern bool WriteProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress, byte[] lpBuffer, int dwSize, out int lpNumberOfBytesWritten);
+        [DllImport("user32.dll")]
+        public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, int dwExtraInfo);
 
         [DllImport("user32.dll")]
-        public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, int wParam, int lParam);
+        public static extern short GetAsyncKeyState(int vKey);
+
+        [DllImport("user32.dll")]
+        public static extern bool SetForegroundWindow(IntPtr hWnd);
 
         const int PROCESS_ALL_ACCESS = 0x1F0FFF;
         const uint WM_KEYDOWN = 0x0100;
         const uint WM_KEYUP = 0x0101;
-
-        static bool spammerRunning = false;
+        const uint MOUSEEVENTF_MOVE = 0x0001;
+        const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+        const uint MOUSEEVENTF_LEFTUP = 0x0004;
+        const int NICKNAME_ADDR = 0x010DF5D8;
+        const int MAP_ADDR = 0x010D856C;
 
         struct PlayerStatus
         {
@@ -45,100 +50,178 @@ namespace Smookyz
         class Buffs
         {
             public bool aspd, gloom, quag, sun, fire, water, wind,
-                        str, dex, agi, vit, luk, intel, drowsiness, resentment, speed,
+                        str, dex, agi, vit, luk, intell, drowsiness, resentment, speed,
                         negativeStatus,
                         gloria, truesight, abrasive, autoguard, reflectshield, defender;
         }
+
+        class ServerInfo
+        {
+            public string WindowTitle { get; set; }
+            public int BaseAddress { get; set; }
+        }
+
         class Config
         {
             public int aspdKey = -1, gloomKey = -1, sunKey = -1, spKey = -1, hpKey = -1,
                        fireKey = -1, waterKey = -1, windKey = -1,
-                       dexKey = -1, agiKey = -1, vitKey = -1, lukKey = -1, intelKey = -1,
+                       dexKey = -1, agiKey = -1, vitKey = -1, lukKey = -1, intellKey = -1,
                        resentmentKey = -1, drowsinessKey = -1, speedKey = -1,
                        strKey = -1, statusRecoveryKey = -1, gloriaKey = -1,
                        truesightKey = -1, abrasiveKey = -1, autoguardKey = -1,
-                       reflectshieldKey = -1, defenderKey = -1;
-
-            // Adjustable SP threshold (percentage)
-            public double spThreshold = -1;
-
+                       reflectshieldKey = -1, defenderKey = -1,
+                       triggerKey = -1, poemKey = -1, riffKey = -1, appleKey = -1,
+                       guitarKey = -1;
+            public double spThreshold = 40.0;
+            public double hpThreshold = 80.0;
             public int pauseKey = 0x24;
             public string windowTitle = "HoneyRO ~";
-            public int baseAddress = 0x010DCE10;
-            public int autoBuffDelay = 50;
-
-            public List<int> skillSpamKeys = new();
+            public int autoBuffDelay = 30;
+            public int chainMacroDelay = 1;
+            public List<int> skillSpamKeys = new List<int>();
             public int skillSpamDelay = 1;
-            public int mouseBoostAddress = -1;
-            public int holdKey = -1;
-            public int holdKeyDelay = 29;
-
-            public int whipKey = -1;
-            public int pdfmKey = -1;
-            public int combatKnifeKey = -1;
-            public int pdfmDelay = 100;
-            public int combatKnifeDelay = 100;
+            public bool isChainMacroActive = false;
+            public int currentMacroIndex = 0;
+            public DateTime lastMacroKeyTime = DateTime.MinValue;
+            public List<int> macroKeys = new List<int>();
         }
+
         static readonly Dictionary<string, int> virtualKeyMap = new()
         {
             { "F1", 0x70 }, { "F2", 0x71 }, { "F3", 0x72 }, { "F4", 0x73 },
             { "F5", 0x74 }, { "F6", 0x75 }, { "F7", 0x76 }, { "F8", 0x77 },
             { "F9", 0x78 }, { "F10", 0x79 }, { "F11", 0x7A }, { "F12", 0x7B },
-
+            { "f1", 0x70 }, { "f2", 0x71 }, { "f3", 0x72 }, { "f4", 0x73 },
+            { "f5", 0x74 }, { "f6", 0x75 }, { "f7", 0x76 }, { "f8", 0x77 },
+            { "f9", 0x78 }, { "f10", 0x79 }, { "f11", 0x7A }, { "f12", 0x7B },
             { "0", 0x30 }, { "1", 0x31 }, { "2", 0x32 }, { "3", 0x33 }, { "4", 0x34 },
             { "5", 0x35 }, { "6", 0x36 }, { "7", 0x37 }, { "8", 0x38 }, { "9", 0x39 },
-
+            { "NUM0", 0x60 }, { "NUM1", 0x61 }, { "NUM2", 0x62 }, { "NUM3", 0x63 },
+            { "NUM4", 0x64 }, { "NUM5", 0x65 }, { "NUM6", 0x66 }, { "NUM7", 0x67 },
+            { "NUM8", 0x68 }, { "NUM9", 0x69 },
             { "A", 0x41 }, { "B", 0x42 }, { "C", 0x43 }, { "D", 0x44 }, { "E", 0x45 },
             { "F", 0x46 }, { "G", 0x47 }, { "H", 0x48 }, { "I", 0x49 }, { "J", 0x4A },
             { "K", 0x4B }, { "L", 0x4C }, { "M", 0x4D }, { "N", 0x4E }, { "O", 0x4F },
             { "P", 0x50 }, { "Q", 0x51 }, { "R", 0x52 }, { "S", 0x53 }, { "T", 0x54 },
             { "U", 0x55 }, { "V", 0x56 }, { "W", 0x57 }, { "X", 0x58 }, { "Y", 0x59 }, { "Z", 0x5A },
-
-            // Lowercase letters
             { "a", 0x41 }, { "b", 0x42 }, { "c", 0x43 }, { "d", 0x44 }, { "e", 0x45 },
             { "f", 0x46 }, { "g", 0x47 }, { "h", 0x48 }, { "i", 0x49 }, { "j", 0x4A },
             { "k", 0x4B }, { "l", 0x4C }, { "m", 0x4D }, { "n", 0x4E }, { "o", 0x4F },
             { "p", 0x50 }, { "q", 0x51 }, { "r", 0x52 }, { "s", 0x53 }, { "t", 0x54 },
             { "u", 0x55 }, { "v", 0x56 }, { "w", 0x57 }, { "x", 0x58 }, { "y", 0x59 }, { "z", 0x5A },
-
-            { "HOME", 0x24 }
+            { "HOME", 0x24 }, { "END", 0x23 }, { "INSERT", 0x2D }, { "DELETE", 0x2E },
+            { "PAGEUP", 0x21 }, { "PAGEDOWN", 0x22 }
         };
 
         static double Percent(double val1, double val2) => (val2 == 0) ? 0 : (val1 / val2) * 100.0;
 
         static void PressKey(IntPtr hWnd, int key, int delay)
         {
-            PostMessage(hWnd, WM_KEYDOWN, key, 0);
-            PostMessage(hWnd, WM_KEYUP, key, 0);
-            Thread.Sleep(delay);
+            if (key != -1)
+            {
+                SetForegroundWindow(hWnd);
+                PostMessage(hWnd, WM_KEYDOWN, key, 0);
+                Thread.Sleep(5);
+                PostMessage(hWnd, WM_KEYUP, key, 0);
+                Thread.Sleep(delay); // No aplicar delay adicional para SkillSpammer
+            }
         }
-        static void PressKeyNoDl(IntPtr hWnd, int key)
-        {
-            PostMessage(hWnd, WM_KEYDOWN, key, 0);
-            PostMessage(hWnd, WM_KEYUP, key, 0);
-        }
+
         static void PressHPKey(IntPtr hWnd, int key)
         {
-            PostMessage(hWnd, WM_KEYDOWN, key, 0);
-            PostMessage(hWnd, WM_KEYUP, key, 0);
+            if (key != -1)
+            {
+                SetForegroundWindow(hWnd);
+                PostMessage(hWnd, WM_KEYDOWN, key, 0);
+                Thread.Sleep(5);
+                PostMessage(hWnd, WM_KEYUP, key, 0);
+            }
         }
+
         static void PressSPKey(IntPtr hWnd, int key)
         {
-            PostMessage(hWnd, WM_KEYDOWN, key, 0);
-            PostMessage(hWnd, WM_KEYUP, key, 0);
+            if (key != -1)
+            {
+                SetForegroundWindow(hWnd);
+                PostMessage(hWnd, WM_KEYDOWN, key, 0);
+                Thread.Sleep(5);
+                PostMessage(hWnd, WM_KEYUP, key, 0);
+            }
         }
+
+        static void MouseFlick()
+        {
+            mouse_event(MOUSEEVENTF_MOVE, 0, 1, 0, 0);
+            Thread.Sleep(1);
+            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
+            Thread.Sleep(1);
+            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+            Thread.Sleep(1);
+            mouse_event(MOUSEEVENTF_MOVE, 0, 4294967295, 0, 0);
+        }
+
+        static string ReadStringFromMemory(IntPtr hProcess, int address, int maxLength)
+        {
+            byte[] buffer = new byte[maxLength];
+            if (ReadProcessMemory(hProcess, (IntPtr)address, buffer, buffer.Length, out _))
+            {
+                int nullTerminatorIndex = Array.IndexOf(buffer, (byte)0);
+                if (nullTerminatorIndex == -1) nullTerminatorIndex = buffer.Length;
+                return Encoding.ASCII.GetString(buffer, 0, nullTerminatorIndex).Trim();
+            }
+            return "Unknown";
+        }
+
+        static List<ServerInfo> LoadServers()
+        {
+            const string file = "servers.ini";
+            var servers = new List<ServerInfo>();
+
+            if (!File.Exists(file))
+            {
+                File.WriteAllText(file, """
+                [Servers]
+                HoneyRO ~=010DCE10
+                """);
+            }
+
+            var lines = File.ReadAllLines(file);
+            string section = "";
+            foreach (var line in lines)
+            {
+                if (string.IsNullOrWhiteSpace(line) || line.StartsWith(";") || line.StartsWith("#")) continue;
+                if (line.StartsWith("[") && line.EndsWith("]")) { section = line[1..^1]; continue; }
+
+                if (section == "Servers")
+                {
+                    var parts = line.Split('=');
+                    if (parts.Length == 2)
+                    {
+                        string windowTitle = parts[0].Trim();
+                        if (int.TryParse(parts[1].Trim(), System.Globalization.NumberStyles.HexNumber, null, out int baseAddress))
+                        {
+                            servers.Add(new ServerInfo { WindowTitle = windowTitle, BaseAddress = baseAddress });
+                        }
+                    }
+                }
+            }
+
+            return servers;
+        }
+
         static void LoadOrCreateConfig(Config config)
         {
             const string file = "config.ini";
             if (!File.Exists(file))
             {
                 File.WriteAllText(file, """
-            [Hotkeys]
-                hpKey=
-                spKey=
-                statusRecoveryKey=
+                [Hotkeys]
+                hpKey=F9
+                spKey=F8
+                statusRecoveryKey=F7
                 pauseKey=HOME
 
+                [Autobuffs]
                 aspdKey=
                 gloomKey=
                 sunKey=
@@ -150,7 +233,7 @@ namespace Smookyz
                 agiKey=
                 vitKey=
                 lukKey=
-                intelKey=
+                intellKey=
                 resentmentKey=
                 drowsinessKey=
                 speedKey=
@@ -161,26 +244,24 @@ namespace Smookyz
                 reflectshieldKey=
                 defenderKey=
 
-            [Settings]
-                spThreshold=
+                [Settings]
+                spThreshold=40
+                hpThreshold=80
                 windowTitle=HoneyRO ~
-                baseAddress=010DCE10
-                autoBuffDelay=50
-            
-            [Skill Spammer]
-                mouseBoostAddress=
+                autoBuffDelay=30
+
+                [SkillSpammer]
                 skillSpamKeys=
                 skillSpamDelay=1
-                holdKey=
-                holdKeyDelay=29
 
-            [SG Gypsy]
-                whipKey=
-                pdfmKey=
-                combatKnifeKey=
-                pdfmDelay=100
-                combatKnifeDelay=100
-            """);
+                [ChainMacros]
+                triggerKey=F1
+                poemKey=F2
+                riffKey=F3
+                appleKey=F4
+                guitarKey=F1
+                chainMacroDelay=1
+                """);
                 return;
             }
 
@@ -194,127 +275,134 @@ namespace Smookyz
                 var parts = line.Split('=');
                 if (parts.Length != 2) continue;
                 string key = parts[0].Trim(), val = parts[1].Trim();
-                if (section == "Hotkeys")
+
+                if (section == "Hotkeys" || section == "Autobuffs" || section == "ChainMacros")
                 {
                     if (string.IsNullOrWhiteSpace(val))
                     {
-                        typeof(Config).GetField(key)?.SetValue(config, -1); // disabled
+                        typeof(Config).GetField(key)?.SetValue(config, -1);
                     }
                     else if (virtualKeyMap.TryGetValue(val, out int code))
                     {
                         typeof(Config).GetField(key)?.SetValue(config, code);
                     }
-                    else
-                    {
-                        Console.WriteLine($"Warning: Unknown key '{val}' for '{key}'");
-                        typeof(Config).GetField(key)?.SetValue(config, -1);
-                    }
                 }
                 else if (section == "Settings")
                 {
                     if (key == "spThreshold" && double.TryParse(val, out double spVal))
-                    {
                         config.spThreshold = spVal;
-                    }
+                    else if (key == "hpThreshold" && double.TryParse(val, out double hpVal))
+                        config.hpThreshold = hpVal;
                     else if (key == "windowTitle")
-                    {
                         config.windowTitle = val;
-                    }
-                    else if (key == "baseAddress" && int.TryParse(val, System.Globalization.NumberStyles.HexNumber, null, out int addr))
-                    {
-                        config.baseAddress = addr;
-                    }
                     else if (key == "autoBuffDelay" && int.TryParse(val, out int delayVal))
-                    {
                         config.autoBuffDelay = delayVal;
-                    }
                 }
-                else if (section == "Skill Spammer")
+                else if (section == "SkillSpammer")
                 {
-                    if (key == "mouseBoostAddress")
+                    if (key == "skillSpamKeys")
                     {
-                        string cleanedVal = val.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? val.Substring(2) : val;
-
-                        if (int.TryParse(cleanedVal, System.Globalization.NumberStyles.HexNumber, null, out int hexAddr))
+                        if (!string.IsNullOrWhiteSpace(val))
                         {
-                            config.mouseBoostAddress = hexAddr;
-                        }
-                        else if (int.TryParse(val, out int decAddr)) // fallback in case it's pure decimal
-                        {
-                            config.mouseBoostAddress = decAddr;
+                            var keys = val.Split(',').Select(k => k.Trim()).ToList();
+                            foreach (var k in keys)
+                            {
+                                if (virtualKeyMap.TryGetValue(k, out int code))
+                                    config.skillSpamKeys.Add(code);
+                            }
                         }
                     }
-                    else if (key == "skillSpamKeys")
-                    {
-                        var keys = val.Split(',');
-                        foreach (var k in keys)
-                        {
-                            if (virtualKeyMap.TryGetValue(k.Trim(), out int keyCode))
-                                config.skillSpamKeys.Add(keyCode);
-                        }
-                    }
-                    else if (key == "skillSpamDelay" && int.TryParse(val, out int spamDelay))
-                    {
-                        config.skillSpamDelay = spamDelay;
-                    }
-                    else if (key == "holdKey")
-                    {
-                        if (string.IsNullOrWhiteSpace(val))
-                        {
-                            typeof(Config).GetField(key)?.SetValue(config, -1); // disabled
-                        }
-                        else if (virtualKeyMap.TryGetValue(val, out int code))
-                        {
-                            typeof(Config).GetField(key)?.SetValue(config, code);
-                        }
-                        else
-                        {
-                            Console.WriteLine($"Warning: Unknown key '{val}' for '{key}'");
-                            typeof(Config).GetField(key)?.SetValue(config, -1);
-                        }
-                    }
-                    else if (key == "holdKeyDelay" && int.TryParse(val, out int holdDelay))
-                    {
-                        config.holdKeyDelay = holdDelay;
-                    }
+                    else if (key == "skillSpamDelay" && int.TryParse(val, out int delay))
+                        config.skillSpamDelay = Math.Max(1, delay);
                 }
-                else if (section == "SG Gypsy")
+                else if (section == "ChainMacros")
                 {
-                    if (key is "whipKey" or "pdfmKey" or "combatKnifeKey")
-                    {
-                        if (string.IsNullOrWhiteSpace(val))
-                            typeof(Config).GetField(key)?.SetValue(config, -1);
-                        else if (virtualKeyMap.TryGetValue(val, out int code))
-                            typeof(Config).GetField(key)?.SetValue(config, code);
-                        else
-                            Console.WriteLine($"Unknown macro key '{val}' for '{key}'");
-                    }
-                    else if ((key == "pdfmDelay" || key == "combatKnifeDelay") && int.TryParse(val, out int delay))
-                    {
-                        typeof(Config).GetField(key)?.SetValue(config, delay);
-                    }
+                    if (key == "chainMacroDelay" && int.TryParse(val, out int delay))
+                        config.chainMacroDelay = Math.Max(1, delay);
                 }
             }
         }
+
+        static void DisplayConfig(Config config, string nickname, string map)
+        {
+            bool autopotEnabled = config.hpKey != -1 || config.spKey != -1 || config.statusRecoveryKey != -1;
+
+            bool autobuffEnabled = config.aspdKey != -1 || config.gloomKey != -1 || config.sunKey != -1 ||
+                                   config.fireKey != -1 || config.waterKey != -1 || config.windKey != -1 ||
+                                   config.strKey != -1 || config.dexKey != -1 || config.agiKey != -1 ||
+                                   config.vitKey != -1 || config.lukKey != -1 || config.intellKey != -1 ||
+                                   config.resentmentKey != -1 || config.drowsinessKey != -1 || config.speedKey != -1 ||
+                                   config.gloriaKey != -1 || config.truesightKey != -1 || config.abrasiveKey != -1 ||
+                                   config.autoguardKey != -1 || config.reflectshieldKey != -1 || config.defenderKey != -1;
+
+            string skillSpammerStatus = config.skillSpamKeys.Count > 0
+                ? string.Join(", ", config.skillSpamKeys.Select(k => virtualKeyMap.FirstOrDefault(x => x.Value == k).Key))
+                : "Disabled";
+
+            bool chainMacroEnabled = config.triggerKey != -1;
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine("Server Found!!");
+            Console.WriteLine("Atomix [ON]");
+            Console.ResetColor();
+
+            Console.Write("Nickname: ");
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine(nickname);
+            Console.ResetColor();
+
+            Console.Write("Map: ");
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine(map);
+            Console.ResetColor();
+
+            Console.Write("Autopot: ");
+            Console.ForegroundColor = autopotEnabled ? ConsoleColor.Green : ConsoleColor.Red;
+            Console.WriteLine(autopotEnabled ? "Enabled" : "Disabled");
+            Console.ResetColor();
+
+            Console.Write("Autobuff: ");
+            Console.ForegroundColor = autobuffEnabled ? ConsoleColor.Green : ConsoleColor.Red;
+            Console.WriteLine(autobuffEnabled ? "Enabled" : "Disabled");
+            Console.ResetColor();
+
+            Console.Write("Skill Spammer: ");
+            Console.ForegroundColor = config.skillSpamKeys.Count > 0 ? ConsoleColor.Green : ConsoleColor.Red;
+            Console.WriteLine(skillSpammerStatus);
+            Console.ResetColor();
+
+            Console.Write("ClownMacro: ");
+            Console.ForegroundColor = chainMacroEnabled ? ConsoleColor.Green : ConsoleColor.Red;
+            Console.WriteLine(chainMacroEnabled ? "Enabled" : "Disabled");
+            Console.ResetColor();
+        }
+
         static void ReadHpOnly(IntPtr hProcess, int addr, ref PlayerStatus status)
         {
             byte[] buffer = new byte[8];
-            ReadProcessMemory(hProcess, (IntPtr)addr, buffer, buffer.Length, out _);
-            status.hpValue = BitConverter.ToInt32(buffer, 0);
-            status.hpMax = BitConverter.ToInt32(buffer, 4);
+            if (ReadProcessMemory(hProcess, (IntPtr)addr, buffer, buffer.Length, out _))
+            {
+                status.hpValue = BitConverter.ToInt32(buffer, 0);
+                status.hpMax = BitConverter.ToInt32(buffer, 4);
+            }
         }
+
         static void ReadSp(IntPtr hProcess, int spAddr, ref PlayerStatus status)
         {
             byte[] buffer = new byte[8];
-            ReadProcessMemory(hProcess, (IntPtr)spAddr, buffer, 8, out _);
-            status.spValue = BitConverter.ToInt32(buffer, 0);
-            status.spMax = BitConverter.ToInt32(buffer, 4);
+            if (ReadProcessMemory(hProcess, (IntPtr)spAddr, buffer, 8, out _))
+            {
+                status.spValue = BitConverter.ToInt32(buffer, 0);
+                status.spMax = BitConverter.ToInt32(buffer, 4);
+            }
         }
+
         static void CheckBuffs(IntPtr hProcess, int addr, Buffs buffs)
         {
             int bufferSize = 33;
             byte[] buffer = new byte[4 * bufferSize];
-            if (!ReadProcessMemory(hProcess, (IntPtr)addr, buffer, buffer.Length, out _)) return;
+            if (!ReadProcessMemory(hProcess, (IntPtr)addr, buffer, buffer.Length, out _))
+                return;
 
             for (int i = 0; i < bufferSize; i++)
             {
@@ -331,15 +419,15 @@ namespace Smookyz
                         break;
                     case 3: buffs.gloom = true; break;
                     case 8: buffs.quag = true; break;
-                    case 21: buffs.gloria = true; break;        // GLORIA
+                    case 21: buffs.gloria = true; break;
                     case 37: case 38: case 39: buffs.aspd = true; break;
                     case 41: buffs.speed = true; break;
-                    case 58: buffs.autoguard = true; break;     // AUTOGUARD
-                    case 59: buffs.reflectshield = true; break; // REFLECTSHIELD
-                    case 62: buffs.defender = true; break;      // DEFENDER
-                    case 115: buffs.truesight = true; break;    // TRUESIGHT
+                    case 58: buffs.autoguard = true; break;
+                    case 59: buffs.reflectshield = true; break;
+                    case 62: buffs.defender = true; break;
+                    case 115: buffs.truesight = true; break;
                     case 184: buffs.sun = true; break;
-                    case 295: buffs.abrasive = true; break;     // ABRASIVE
+                    case 295: buffs.abrasive = true; break;
                     case 908: buffs.water = true; break;
                     case 910: buffs.fire = true; break;
                     case 911: buffs.wind = true; break;
@@ -348,38 +436,20 @@ namespace Smookyz
                     case 242: buffs.agi = true; break;
                     case 243: buffs.vit = true; break;
                     case 246: buffs.luk = true; break;
-                    case 245: buffs.intel = true; break;
+                    case 245: buffs.intell = true; break;
                     case 150: buffs.resentment = true; break;
                     case 151: buffs.drowsiness = true; break;
                 }
             }
         }
-        static DateTime lastSpeedKeyTime = DateTime.MinValue;
-        static void HandleActions(IntPtr hProcess, IntPtr hWnd, PlayerStatus status, Buffs buffs, double spThreshold, Config config, bool paused)
+
+        static void HandleActions(IntPtr hProcess, IntPtr hWnd, PlayerStatus status, Buffs buffs, double spThreshold, double hpThreshold, Config config, bool paused)
         {
+            if (paused) return;
+
             if (config.statusRecoveryKey != -1 && buffs.negativeStatus)
             {
                 PressKey(hWnd, config.statusRecoveryKey, 15);
-                return;
-            }
-
-            if (config.spKey != -1 && Percent(status.spValue, status.spMax) < config.spThreshold)
-            {
-                PressKey(hWnd, config.spKey, 15);
-                return;
-            }
-            if (config.speedKey != -1 && !buffs.speed)
-            {
-                PressKey(hWnd, config.speedKey, config.autoBuffDelay);
-                lastSpeedKeyTime = DateTime.Now;
-                return;
-            }
-            if (config.speedKey != -1 && ((DateTime.Now - lastSpeedKeyTime).TotalMilliseconds >= 3800))
-            {
-                Thread.Sleep(80);
-                PressKey(hWnd, config.speedKey, 15);
-                PressKey(hWnd, config.speedKey, 15);
-                lastSpeedKeyTime = DateTime.Now;
                 return;
             }
 
@@ -411,6 +481,11 @@ namespace Smookyz
             if (config.sunKey != -1 && !buffs.sun)
             {
                 PressKey(hWnd, config.sunKey, config.autoBuffDelay);
+                return;
+            }
+            if (config.speedKey != -1 && !buffs.speed)
+            {
+                PressKey(hWnd, config.speedKey, config.autoBuffDelay);
                 return;
             }
             if (config.fireKey != -1 && !buffs.fire)
@@ -453,9 +528,9 @@ namespace Smookyz
                 PressKey(hWnd, config.lukKey, config.autoBuffDelay);
                 return;
             }
-            if (config.intelKey != -1 && !buffs.intel)
+            if (config.intellKey != -1 && !buffs.intell)
             {
-                PressKey(hWnd, config.intelKey, config.autoBuffDelay);
+                PressKey(hWnd, config.intellKey, config.autoBuffDelay);
                 return;
             }
             if (config.gloriaKey != -1 && !buffs.gloria)
@@ -488,133 +563,78 @@ namespace Smookyz
                 PressKey(hWnd, config.defenderKey, config.autoBuffDelay);
                 return;
             }
-
-            // If none of the above, Use HP pots instead :)
-            if (!paused)  // <-- only press HP key if NOT paused | Pause check is inside Main
-            {
-                PressHPKey(hWnd, config.hpKey);
-            }
         }
-        static void WriteIntToMemory(IntPtr hProcess, int address, int value)
-        {
-            byte[] buffer = BitConverter.GetBytes(value);
-            WriteProcessMemory(hProcess, (IntPtr)address, buffer, buffer.Length, out _);
-        }
-        static void SkillSpammerThread(IntPtr hProcess, IntPtr hWnd, int address, int holdKey, int holdDelay, List<int> selectedKeys, int spamDelay)
-        {
-            bool initialSetupDone = false;
-            int activeKey = -1;
 
-            while (spammerRunning)
+        static void HandleChainMacros(IntPtr hWnd, Config config, bool paused)
+        {
+            if (paused || config.triggerKey == -1) return;
+
+            // Iniciar la macro si se presiona triggerKey y no está activa
+            if (!config.isChainMacroActive && (GetAsyncKeyState(config.triggerKey) & 0x8000) != 0)
             {
-                if (activeKey == -1)
+                config.isChainMacroActive = true;
+                config.currentMacroIndex = 0;
+                config.macroKeys.Clear();
+                // Secuencia: guitar, apple, dagger, guitar, riff, dagger, guitar, poem, dagger
+                config.macroKeys.AddRange(new[]
                 {
-                    foreach (int key in selectedKeys)
+                    config.guitarKey,
+                    config.poemKey,
+                    config.guitarKey,
+                    config.riffKey,
+                    config.guitarKey,
+                    config.appleKey,
+                    config.guitarKey,
+                    config.poemKey,
+                });
+                config.lastMacroKeyTime = DateTime.Now;
+            }
+
+            // Ejecutar la siguiente tecla de la macro si está activa
+            if (config.isChainMacroActive && config.currentMacroIndex < config.macroKeys.Count)
+            {
+                if ((DateTime.Now - config.lastMacroKeyTime).TotalMilliseconds >= config.chainMacroDelay)
+                {
+                    int key = config.macroKeys[config.currentMacroIndex];
+                    if (key != -1)
                     {
-                        if ((GetAsyncKeyState(key) & 0x8000) != 0)
-                        {
-                            activeKey = key;
-
-                            if (holdKey != -1 && !initialSetupDone)
-                            {
-                                PostMessage(hWnd, WM_KEYDOWN, holdKey, 0);
-                                Thread.Sleep(holdDelay);
-                                PostMessage(hWnd, WM_KEYUP, holdKey, 0);
-                                initialSetupDone = true;
-                            }
-
-                            break; // Found key, break early
-                        }
+                        SetForegroundWindow(hWnd);
+                        PostMessage(hWnd, WM_KEYDOWN, key, 0);
+                        Thread.Sleep(10);
+                        PostMessage(hWnd, WM_KEYUP, key, 0);
                     }
-
-                    // Only sleep while idle (no key active)
-                    Thread.Sleep(14);
-                }
-                else if ((GetAsyncKeyState(activeKey) & 0x8000) != 0)
-                {
-                    // Key is still held — spam it
-                    WriteIntToMemory(hProcess, address, 500);
-                    PostMessage(hWnd, WM_KEYDOWN, activeKey, 0);
-                    PostMessage(hWnd, 0x0201, 0x0001, 0); // WM_LBUTTONDOWN
-                    Thread.Sleep(spamDelay);
-                    PostMessage(hWnd, 0x0202, 0x0000, 0); // WM_LBUTTONUP
-                    Thread.Sleep(spamDelay);
-                }
-                else
-                {
-                    // Key released — cleanup
-                    if (initialSetupDone && holdKey != -1)
-                    {
-                        SendMessage(hWnd, WM_KEYDOWN, holdKey, 0);
-                        Thread.Sleep(holdDelay);
-                        SendMessage(hWnd, WM_KEYUP, holdKey, 0);
-                        initialSetupDone = false;
-                    }
-
-                    activeKey = -1;
+                    config.currentMacroIndex++;
+                    config.lastMacroKeyTime = DateTime.Now;
                 }
             }
-        }
-        static void StartSpammerThread(IntPtr hProcess, IntPtr hWnd, Config config)
-        {
-            var thread = new Thread(() =>
-            {
-                SkillSpammerThread(
-                                    hProcess,
-                                    hWnd,
-                                    config.mouseBoostAddress,
-                                    config.holdKey,
-                                    config.holdKeyDelay,
-                                    new List<int>(config.skillSpamKeys),
-                                    config.skillSpamDelay
-                );
-            })
-            {
-                IsBackground = true
-            };
-            thread.Start();
-        }
-        static void MacroSwitcherThread(IntPtr hWnd, int whipKey, int pdfmKey, int combatKnifeKey, int pdfmDelay, int combatKnifeDelay)
-        {
-            while (true)
-            {
-                if ((GetAsyncKeyState(whipKey) & 0x8000) != 0) 
-                {
-                    PressKey(hWnd, whipKey, 14); 
-                    PressKeyNoDl(hWnd, pdfmKey);
-                    Thread.Sleep(pdfmDelay);
-                    PressKeyNoDl(hWnd, combatKnifeKey);
-                    Thread.Sleep(combatKnifeDelay);              
-                }
 
-                Thread.Sleep(15);
+            // Finalizar la macro si se completó la secuencia
+            if (config.isChainMacroActive && config.currentMacroIndex >= config.macroKeys.Count)
+            {
+                config.isChainMacroActive = false;
+                config.currentMacroIndex = 0;
+                config.macroKeys.Clear();
             }
         }
-        static void StartMacroSwitcherThread(IntPtr hWnd, Config config)
-        {
 
-            var thread = new Thread(() =>
-            {
-                MacroSwitcherThread(
-                                    hWnd,
-                                    config.whipKey,
-                                    config.pdfmKey,
-                                    config.combatKnifeKey,
-                                    config.pdfmDelay,
-                                    config.combatKnifeDelay
-                );
-            })
-            {
-                IsBackground = true
-            };
-            thread.Start();
-            
-        }
         static void Main()
         {
-            Console.Title = "Smookyz";
+            Console.Title = "Atomix";
             var config = new Config();
             LoadOrCreateConfig(config);
+
+            var servers = LoadServers();
+            var selectedServer = servers.Find(s => s.WindowTitle == config.windowTitle);
+            if (selectedServer == null)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"Error: No se encontró el servidor '{config.windowTitle}' en servers.ini");
+                Console.WriteLine("Por favor, agrega el servidor al archivo servers.ini y verifica el windowTitle.");
+                Console.ResetColor();
+                Console.WriteLine("Presiona cualquier tecla para salir...");
+                Console.ReadKey();
+                return;
+            }
 
             IntPtr hWnd = IntPtr.Zero;
             IntPtr hProcess = IntPtr.Zero;
@@ -632,41 +652,32 @@ namespace Smookyz
                 if (hWnd == IntPtr.Zero || hProcess == IntPtr.Zero)
                 {
                     Console.Clear();
+                    Console.ForegroundColor = ConsoleColor.Red;
                     Console.WriteLine("Waiting for Ragnarok window...");
                     Thread.Sleep(1000);
                 }
             }
 
-            int baseAddr = config.baseAddress;
+            int baseAddr = selectedServer.BaseAddress;
             int hpAddr = baseAddr;
             int spAddr = baseAddr + 8;
             int buffAddr = baseAddr + 0x474;
 
             bool paused = false;
-
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine("Server Found!\nSmookyz [ON]");
-            Console.ResetColor();
-
-            if (config.skillSpamKeys.Count > 0)
-            {
-                spammerRunning = true;
-                StartSpammerThread(hProcess, hWnd, config);
-            }
-
-            if (config.whipKey != -1 && config.pdfmKey != -1 && config.combatKnifeKey != -1) { 
-                StartMacroSwitcherThread(hWnd, config);
-            }
-
+            bool hpUsed = false, spUsed = false;
             PlayerStatus status = new();
             Buffs buffs = new();
-            int counter = 0;
             int debounceDelayMs = 600;
             DateTime lastPauseToggle = DateTime.MinValue;
+            DateTime lastInfoCheck = DateTime.MinValue;
+            string currentNickname = ReadStringFromMemory(hProcess, NICKNAME_ADDR, 24);
+            string currentMap = ReadStringFromMemory(hProcess, MAP_ADDR, 32);
+
+            DisplayConfig(config, currentNickname, currentMap);
 
             while (true)
             {
-                // Pause toggle key detection (toggle paused on key press)
+                // Manejo de la pausa
                 if ((GetAsyncKeyState(config.pauseKey) & 0x8000) != 0)
                 {
                     if ((DateTime.Now - lastPauseToggle).TotalMilliseconds > debounceDelayMs)
@@ -677,35 +688,77 @@ namespace Smookyz
                     }
                 }
 
-                ReadHpOnly(hProcess, hpAddr, ref status);
-                if (status.hpValue != status.hpMax)
+                if (paused)
                 {
-                    PressHPKey(hWnd, config.hpKey);
-                    counter++;
-                    Thread.Sleep(15);
-                    if (counter == 3)
-                    {
-                        ReadSp(hProcess, spAddr, ref status);
-                        if (Percent(status.spValue, status.spMax) < config.spThreshold)
-                        {
-                            PressSPKey(hWnd, config.spKey);
-                            Thread.Sleep(15);
-                        }
-                        counter = 0;
-                    }
+                    Thread.Sleep(10);
                     continue;
                 }
 
+                // Autopot (HP/SP) - Prioridad máxima
+                ReadHpOnly(hProcess, hpAddr, ref status);
                 ReadSp(hProcess, spAddr, ref status);
-                buffs = new Buffs();
-                CheckBuffs(hProcess, buffAddr, buffs);
-                HandleActions(hProcess, hWnd, status, buffs, config.spThreshold, config, paused);
+                double hpPercent = Percent(status.hpValue, status.hpMax);
+                double spPercent = Percent(status.spValue, status.spMax);
 
-                Thread.Sleep(15);
+                if (config.hpKey != -1 && hpPercent < config.hpThreshold && !hpUsed && hpPercent > 0)
+                {
+                    PressHPKey(hWnd, config.hpKey);
+                    hpUsed = true;
+                    Thread.Sleep(100);
+                }
+                else if (hpPercent >= config.hpThreshold)
+                {
+                    hpUsed = false;
+                }
+
+                if (config.spKey != -1 && spPercent < config.spThreshold && !spUsed && spPercent > 0)
+                {
+                    PressSPKey(hWnd, config.spKey);
+                    spUsed = true;
+                    Thread.Sleep(100);
+                }
+                else if (spPercent >= config.spThreshold)
+                {
+                    spUsed = false;
+                }
+
+                // Buffs y actualización de mapa (verificar cada 1000ms)
+                if ((DateTime.Now - lastInfoCheck).TotalMilliseconds >= 1000)
+                {
+                    buffs = new Buffs();
+                    CheckBuffs(hProcess, buffAddr, buffs);
+                    HandleActions(hProcess, hWnd, status, buffs, config.spThreshold, config.hpThreshold, config, paused);
+
+                    string newMap = ReadStringFromMemory(hProcess, MAP_ADDR, 32);
+                    if (newMap != currentMap)
+                    {
+                        currentMap = newMap;
+                        Console.Clear();
+                        DisplayConfig(config, currentNickname, currentMap);
+                    }
+
+                    lastInfoCheck = DateTime.Now;
+                }
+
+                // SkillSpammer
+                bool anyKeyPressed = false;
+                foreach (int key in config.skillSpamKeys)
+                {
+                    if (key != -1 && (GetAsyncKeyState(key) & 0x8000) != 0)
+                    {
+                        anyKeyPressed = true;
+                        PressKey(hWnd, key, 0);
+                        MouseFlick();
+                        Thread.Sleep(config.skillSpamDelay);
+                    }
+                }
+
+                // ChainMacros
+                HandleChainMacros(hWnd, config, paused);
+
+                // Retraso para reducir uso de CPU
+                Thread.Sleep(anyKeyPressed ? 1 : 10);
             }
         }
-
-        [DllImport("user32.dll")]
-        public static extern short GetAsyncKeyState(int vKey);
     }
 }
